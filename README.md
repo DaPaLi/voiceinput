@@ -44,22 +44,24 @@ Beim ersten Start wird das Whisper-Modell automatisch heruntergeladen (~1,5 GB f
 | Aufnahme starten/stoppen | `Strg + Alt + Leertaste` (halten) |
 | Programm beenden | `Strg + Alt + Q` oder Rechtsklick aufs Tray-Symbol |
 
-## Konfiguration
+## Einstellungen beim Start
 
-In `voice_input.py` oben anpassbar:
-
-```python
-MODEL_SIZE = "medium"   # small / medium / large-v3
-LANGUAGE   = "de"       # de, en, fr, ...
-```
+Beim Start erscheint ein Dialog zur Auswahl von **Modell** und **Sprache**:
 
 ### Modelle im Vergleich
 
 | Modell | Größe | Qualität | Geschwindigkeit |
 |---|---|---|---|
+| `tiny` | ~75 MB | ausreichend | extrem schnell |
+| `base` | ~145 MB | gut | sehr schnell |
 | `small` | ~500 MB | gut | sehr schnell |
 | `medium` | ~1,5 GB | sehr gut | schnell |
+| `large-v2` | ~3 GB | sehr gut | langsamer |
 | `large-v3` | ~3 GB | beste | langsamer |
+
+### Unterstützte Sprachen
+
+Deutsch, Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Niederländisch, Polnisch, Russisch, Japanisch, Chinesisch, Arabisch, Türkisch, Koreanisch – und viele mehr.
 
 ## Lizenz
 
