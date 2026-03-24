@@ -10,13 +10,73 @@ import numpy as np
 import sounddevice as sd
 import win32clipboard, win32con, win32api
 import pystray
+import tkinter as tk
+from tkinter import ttk
 from PIL import Image, ImageDraw
 from pynput import keyboard as pynput_kb
 from faster_whisper import WhisperModel
 
 SAMPLE_RATE = 16000
-MODEL_SIZE  = "medium"
 LANGUAGE    = "de"
+
+MODELS = ["tiny", "base", "small", "medium", "large-v2", "large-v3"]
+
+LANGUAGES = [
+    ("de", "Deutsch"),
+    ("en", "Englisch"),
+    ("fr", "Französisch"),
+    ("es", "Spanisch"),
+    ("it", "Italienisch"),
+    ("pt", "Portugiesisch"),
+    ("nl", "Niederländisch"),
+    ("pl", "Polnisch"),
+    ("ru", "Russisch"),
+    ("ja", "Japanisch"),
+    ("zh", "Chinesisch"),
+    ("ar", "Arabisch"),
+    ("tr", "Türkisch"),
+    ("ko", "Koreanisch"),
+]
+
+def choose_settings():
+    result = {"model": "large-v3", "language": "de"}
+    root = tk.Tk()
+    root.title("VoiceInput – Einstellungen")
+    root.resizable(False, False)
+    root.attributes("-topmost", True)
+    root.eval("tk::PlaceWindow . center")
+
+    frame = tk.Frame(root, padx=20, pady=15)
+    frame.pack()
+
+    # Modell
+    tk.Label(frame, text="Whisper-Modell:", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0,5))
+    model_var = tk.StringVar(value="large-v3")
+    for i, m in enumerate(MODELS):
+        tk.Radiobutton(frame, text=m, variable=model_var, value=m,
+                       font=("Segoe UI", 10)).grid(row=i+1, column=0, sticky="w", padx=10)
+
+    # Sprache
+    tk.Label(frame, text="Sprache:", font=("Segoe UI", 11, "bold")).grid(row=0, column=1, sticky="w", padx=(30,0), pady=(0,5))
+    lang_var = tk.StringVar(value="de")
+    for i, (code, name) in enumerate(LANGUAGES):
+        tk.Radiobutton(frame, text=name, variable=lang_var, value=code,
+                       font=("Segoe UI", 10)).grid(row=i+1, column=1, sticky="w", padx=(40,0))
+
+    def confirm():
+        result["model"] = model_var.get()
+        result["language"] = lang_var.get()
+        root.destroy()
+
+    tk.Button(root, text="Starten", command=confirm,
+              font=("Segoe UI", 10, "bold"), padx=20, pady=6,
+              bg="#1a73e8", fg="white", relief="flat", cursor="hand2").pack(pady=15)
+
+    root.protocol("WM_DELETE_WINDOW", confirm)
+    root.mainloop()
+    return result["model"], result["language"]
+
+MODEL_SIZE, LANGUAGE = choose_settings()
 
 # ── Icons ────────────────────────────────────────────────────────────────────
 def make_icon(mic_col, bg_col):
