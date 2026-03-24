@@ -1,113 +1,163 @@
 """
-Voice Input für Claude Code
-============================
-Hotkey: Strg + Alt + Leertaste gedrückt halten → sprechen → loslassen → Text wird eingefügt
-
-Starten: voice_input.bat (Doppelklick oder Autostart)
-Beenden: Strg+Alt+Q
+Voice Input
+===========
+Strg + Alt + Leertaste halten → sprechen → loslassen → Text wird eingefügt
+Strg + Alt + Q = Beenden
 """
 
-import sys
-import threading
-import time
+import sys, threading, time, ctypes
 import numpy as np
 import sounddevice as sd
-import keyboard
-import subprocess
-import ctypes
-
-PYTHON = sys.executable
-HOTKEY_RECORD = "ctrl+alt+space"
-HOTKEY_QUIT   = "ctrl+alt+q"
-SAMPLE_RATE   = 16000
-MODEL_SIZE    = "medium"     # small=schnell, medium=besser für DE, large-v3=beste Qualität
-LANGUAGE      = "de"
-
-# ── Whisper-Modell laden (einmalig beim Start) ──────────────────────────────
-print(f"[VoiceInput] Lade Whisper-Modell '{MODEL_SIZE}' ...", flush=True)
+import win32clipboard, win32con, win32api
+import pystray
+from PIL import Image, ImageDraw
+from pynput import keyboard as pynput_kb
 from faster_whisper import WhisperModel
-model = WhisperModel(MODEL_SIZE, device="cuda", compute_type="float16")
-print("[VoiceInput] Bereit!  Strg+Alt+Leertaste halten = aufnehmen, loslassen = Text einfügen.", flush=True)
-print("[VoiceInput] Strg+Alt+Q zum Beenden.", flush=True)
 
-# ── Aufnahme-State ──────────────────────────────────────────────────────────
+SAMPLE_RATE = 16000
+MODEL_SIZE  = "medium"
+LANGUAGE    = "de"
+
+# ── Icons ────────────────────────────────────────────────────────────────────
+def make_icon(mic_col, bg_col):
+    img = Image.new("RGBA", (64, 64), (0,0,0,0))
+    d = ImageDraw.Draw(img)
+    d.ellipse([2,2,62,62], fill=bg_col)
+    d.rounded_rectangle([22,10,42,38], radius=10, fill=mic_col)
+    d.arc([16,24,48,50], start=0, end=180, fill=mic_col, width=4)
+    d.rectangle([30,48,34,56], fill=mic_col)
+    d.rectangle([22,54,42,58], fill=mic_col)
+    return img
+
+ICO_READY = make_icon((255,255,255),(50,50,50))
+ICO_REC   = make_icon((255,255,255),(200,40,40))
+ICO_PROC  = make_icon((255,255,255),(40,120,200))
+
+# ── Whisper ──────────────────────────────────────────────────────────────────
+print("[VoiceInput] Lade Modell ...", flush=True)
+model = WhisperModel(MODEL_SIZE, device="cuda", compute_type="float16")
+print("[VoiceInput] Bereit! Strg+Alt+Leertaste halten = aufnehmen.", flush=True)
+
+# ── State ────────────────────────────────────────────────────────────────────
 recording      = False
 audio_frames   = []
 lock           = threading.Lock()
+tray_icon      = None
+target_window  = None   # Fenster, das beim Hotkey fokussiert war
 
-def set_title(text):
-    ctypes.windll.kernel32.SetConsoleTitleW(f"VoiceInput – {text}")
+def set_icon(img, tip):
+    if tray_icon:
+        tray_icon.icon  = img
+        tray_icon.title = tip
 
-set_title("Bereit")
-
-def on_hotkey_down(e):
-    global recording, audio_frames
+# ── Aufnahme ─────────────────────────────────────────────────────────────────
+def start_recording():
+    global recording, audio_frames, target_window
     with lock:
-        if recording:
-            return
+        if recording: return
         recording = True
         audio_frames = []
-    set_title("● Aufnahme läuft...")
-    print("[VoiceInput] Aufnahme gestartet...", flush=True)
-    threading.Thread(target=record_audio, daemon=True).start()
+        target_window = ctypes.windll.user32.GetForegroundWindow()
+    set_icon(ICO_REC, "● Aufnahme läuft...")
+    print("[VoiceInput] Aufnahme...", flush=True)
+    threading.Thread(target=_record, daemon=True).start()
 
-def on_hotkey_up(e):
+def stop_recording():
     global recording
     with lock:
+        if not recording: return
         recording = False
-    set_title("⏳ Transkribiere...")
-    print("[VoiceInput] Aufnahme gestoppt. Transkribiere...", flush=True)
+    set_icon(ICO_PROC, "⏳ Transkribiere...")
+    print("[VoiceInput] Gestoppt.", flush=True)
 
-def record_audio():
+def _record():
     frames = []
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32") as stream:
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32") as s:
         while True:
             with lock:
-                if not recording:
-                    break
-            chunk, _ = stream.read(1024)
+                if not recording: break
+            chunk, _ = s.read(1024)
             frames.append(chunk.copy())
     audio_frames.extend(frames)
-    threading.Thread(target=transcribe_and_paste, daemon=True).start()
+    threading.Thread(target=_transcribe, daemon=True).start()
 
-def transcribe_and_paste():
-    global audio_frames
+def _transcribe():
     if not audio_frames:
-        set_title("Bereit")
-        return
-
-    audio = np.concatenate(audio_frames, axis=0).flatten()
-    if len(audio) < SAMPLE_RATE * 0.3:   # kürzer als 0,3 Sek → ignorieren
-        set_title("Bereit")
-        return
-
-    segments, info = model.transcribe(audio, language=LANGUAGE, beam_size=5)
-    text = " ".join(seg.text.strip() for seg in segments).strip()
-
+        set_icon(ICO_READY, "VoiceInput – Bereit"); return
+    audio = np.concatenate(audio_frames).flatten()
+    if len(audio) < SAMPLE_RATE * 0.3:
+        set_icon(ICO_READY, "VoiceInput – Bereit"); return
+    segs, _ = model.transcribe(audio, language=LANGUAGE, beam_size=5)
+    text = " ".join(s.text.strip() for s in segs).strip()
     if text:
         print(f"[VoiceInput] → {text}", flush=True)
-        paste_text(text)
-        set_title(f"Bereit  (zuletzt: {text[:40]})")
+        _paste(text)
+        set_icon(ICO_READY, f"Zuletzt: {text[:50]}")
     else:
         print("[VoiceInput] Kein Text erkannt.", flush=True)
-        set_title("Bereit")
+        set_icon(ICO_READY, "VoiceInput – Bereit")
 
-def paste_text(text):
-    # Text in Zwischenablage → Strg+V ins aktive Fenster
-    ps = f"Set-Clipboard -Value '{text.replace(chr(39), chr(96))}'"
-    subprocess.run(["powershell.exe", "-Command", ps], capture_output=True)
+def _paste(text):
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardText(text, win32con.CF_UNICODETEXT)
+    win32clipboard.CloseClipboard()
     time.sleep(0.1)
-    keyboard.press_and_release("ctrl+v")
+    if target_window:
+        ctypes.windll.user32.SetForegroundWindow(target_window)
+    time.sleep(0.2)
+    print("[VoiceInput] Füge ein...", flush=True)
+    VK_CTRL, VK_V = win32con.VK_CONTROL, ord('V')
+    win32api.keybd_event(VK_CTRL, 0, 0, 0)
+    win32api.keybd_event(VK_V,    0, 0, 0)
+    win32api.keybd_event(VK_V,    0, win32con.KEYEVENTF_KEYUP, 0)
+    win32api.keybd_event(VK_CTRL, 0, win32con.KEYEVENTF_KEYUP, 0)
+    print("[VoiceInput] Eingefügt.", flush=True)
 
-# ── Hotkeys registrieren ────────────────────────────────────────────────────
-keyboard.on_press_key(HOTKEY_RECORD.split("+")[-1],
-                      lambda e: on_hotkey_down(e) if keyboard.is_pressed("ctrl") and keyboard.is_pressed("alt") else None,
-                      suppress=False)
-keyboard.on_release_key(HOTKEY_RECORD.split("+")[-1],
-                        lambda e: on_hotkey_up(e) if recording else None,
-                        suppress=False)
+# ── pynput Keyboard Listener ─────────────────────────────────────────────────
+SPACE = pynput_kb.Key.space
+CTRL  = {pynput_kb.Key.ctrl, pynput_kb.Key.ctrl_l, pynput_kb.Key.ctrl_r}
+ALT   = {pynput_kb.Key.alt,  pynput_kb.Key.alt_l,  pynput_kb.Key.alt_r}
 
-keyboard.add_hotkey(HOTKEY_QUIT, lambda: (print("[VoiceInput] Beendet."), sys.exit(0)))
+pressed = set()
 
-# ── Hauptloop ───────────────────────────────────────────────────────────────
-keyboard.wait()
+def on_press(key):
+    pressed.add(key)
+    if (key == SPACE
+            and any(k in pressed for k in CTRL)
+            and any(k in pressed for k in ALT)):
+        start_recording()
+    # Beenden: Ctrl+Alt+Q
+    try:
+        if (key.char == 'q'
+                and any(k in pressed for k in CTRL)
+                and any(k in pressed for k in ALT)):
+            tray_icon.stop() if tray_icon else None
+            sys.exit(0)
+    except AttributeError:
+        pass
+
+def on_release(key):
+    if key == SPACE:
+        stop_recording()
+    pressed.discard(key)
+
+listener = pynput_kb.Listener(on_press=on_press, on_release=on_release)
+listener.start()
+
+# ── Tray ─────────────────────────────────────────────────────────────────────
+def _tray():
+    global tray_icon
+    menu = pystray.Menu(
+        pystray.MenuItem("VoiceInput", None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Beenden", lambda: (tray_icon.stop(), sys.exit(0)))
+    )
+    tray_icon = pystray.Icon("VoiceInput", ICO_READY, "VoiceInput – Bereit", menu)
+    tray_icon.run()
+
+threading.Thread(target=_tray, daemon=True).start()
+print("[VoiceInput] Mikrofon-Symbol aktiv.", flush=True)
+
+# ── Hauptloop ─────────────────────────────────────────────────────────────────
+listener.join()
