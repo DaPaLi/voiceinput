@@ -10,7 +10,9 @@ Gesprochener Text wird transkribiert und per Zwischenablage in das aktive Fenste
 - GPU-Beschleunigung (NVIDIA CUDA)
 - Gute Erkennung für **Deutsch** und andere Sprachen
 - Einfacher Hotkey: `Strg + Alt + Leertaste` halten → sprechen → loslassen
-- Text wird eingefügt – du prüfst, dann selbst Enter drücken
+- Text wird direkt ins aktive Fenster eingefügt
+- System-Tray-Symbol zeigt Status (grau = bereit, rot = Aufnahme, blau = Transkription)
+- Kein Admin-Modus nötig
 
 ## Voraussetzungen
 
@@ -21,7 +23,7 @@ Gesprochener Text wird transkribiert und per Zwischenablage in das aktive Fenste
 ## Installation
 
 ```bash
-pip install faster-whisper sounddevice numpy keyboard
+pip install faster-whisper sounddevice numpy pynput pystray Pillow pywin32
 ```
 
 ## Starten
@@ -33,14 +35,14 @@ Oder direkt:
 python voice_input.py
 ```
 
-Beim ersten Start wird das Whisper-Modell (~1,5 GB) automatisch heruntergeladen.
+Beim ersten Start wird das Whisper-Modell automatisch heruntergeladen (~1,5 GB für `medium`, ~3 GB für `large-v3`).
 
 ## Bedienung
 
 | Aktion | Hotkey |
 |---|---|
 | Aufnahme starten/stoppen | `Strg + Alt + Leertaste` (halten) |
-| Programm beenden | `Strg + Alt + Q` |
+| Programm beenden | `Strg + Alt + Q` oder Rechtsklick aufs Tray-Symbol |
 
 ## Konfiguration
 
@@ -49,8 +51,15 @@ In `voice_input.py` oben anpassbar:
 ```python
 MODEL_SIZE = "medium"   # small / medium / large-v3
 LANGUAGE   = "de"       # de, en, fr, ...
-HOTKEY_RECORD = "ctrl+alt+space"
 ```
+
+### Modelle im Vergleich
+
+| Modell | Größe | Qualität | Geschwindigkeit |
+|---|---|---|---|
+| `small` | ~500 MB | gut | sehr schnell |
+| `medium` | ~1,5 GB | sehr gut | schnell |
+| `large-v3` | ~3 GB | beste | langsamer |
 
 ## Lizenz
 
